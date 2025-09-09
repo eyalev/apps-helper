@@ -35,7 +35,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y musl-tools
 
     - name: Cache cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -58,7 +58,7 @@ jobs:
         echo "ARCHIVE_PATH=dist/${{ matrix.archive-name }}" >> $GITHUB_ENV
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.archive-name }}
         path: ${{ env.ARCHIVE_PATH }}
@@ -70,7 +70,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Download artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         path: dist
 
