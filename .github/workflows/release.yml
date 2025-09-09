@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive-name: apps-helper-linux-x86_64.tar.gz
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive-name: apps-helper-linux-x86_64-musl.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install musl tools
+      if: matrix.target == 'x86_64-unknown-linux-musl'
+      run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Create archive
+      run: |
+        mkdir -p dist
+        cp target/${{ matrix.target }}/release/apps-helper dist/
+        cd dist
+        tar -czf ${{ matrix.archive-name }} apps-helper
+        echo "ARCHIVE_NAME=${{ matrix.archive-name }}" >> $GITHUB_ENV
+        echo "ARCHIVE_PATH=dist/${{ matrix.archive-name }}" >> $GITHUB_ENV
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.archive-name }}
+        path: ${{ env.ARCHIVE_PATH }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: dist
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/**/*.tar.gz
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
