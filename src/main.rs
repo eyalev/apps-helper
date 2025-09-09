@@ -111,7 +111,10 @@ enum ProfileCommands {
     },
 }
 
-const DATA_FILE: &str = "apps.json";
+fn get_data_file_path() -> PathBuf {
+    let home = std::env::var("HOME").expect("HOME environment variable not set");
+    PathBuf::from(home).join(".apps-helper").join("apps.json")
+}
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -525,11 +528,12 @@ fn remove_profile(app: &mut App, profile_type: ProfileType) -> Result<()> {
 }
 
 fn load_data() -> Result<AppsData> {
-    if !std::path::Path::new(DATA_FILE).exists() {
+    let data_file = get_data_file_path();
+    if !data_file.exists() {
         return Ok(AppsData::default());
     }
     
-    let content = fs::read_to_string(DATA_FILE)?;
+    let content = fs::read_to_string(&data_file)?;
     let mut data: AppsData = serde_json::from_str(&content)?;
     
     // Migrate legacy directory field to profiles if needed
@@ -550,7 +554,11 @@ fn load_data() -> Result<AppsData> {
 
 fn save_data(data: &AppsData) -> Result<()> {
     let content = serde_json::to_string_pretty(data)?;
-    fs::write(DATA_FILE, content)?;
+    // Ensure the directory exists
+    if let Some(parent) = get_data_file_path().parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(get_data_file_path(), content)?;
     Ok(())
 }
 
