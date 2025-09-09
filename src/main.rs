@@ -59,6 +59,12 @@ enum Commands {
         #[command(subcommand)]
         subcommand: Option<AppCommands>,
     },
+    Latest {
+        #[arg(short, long, default_value = "10", help = "Number of latest apps to show")]
+        count: usize,
+        #[arg(long, help = "Show each app on one line")]
+        oneline: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -122,6 +128,9 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::App { get, subcommand } => {
             handle_app_command(get, subcommand)?;
+        }
+        Commands::Latest { count, oneline } => {
+            list_latest_apps(count, oneline)?;
         }
     }
 
@@ -331,6 +340,92 @@ fn list_apps() -> Result<()> {
         }
         println!("    Created: {}", format_datetime(&app.created_at));
         println!();
+    }
+    
+    Ok(())
+}
+
+fn list_latest_apps(count: usize, oneline: bool) -> Result<()> {
+    let data = load_data()?;
+    
+    if data.apps.is_empty() {
+        println!("No apps found.");
+        return Ok(());
+    }
+    
+    // Sort apps by updated_at timestamp in descending order (latest first)
+    let mut apps: Vec<_> = data.apps.values().collect();
+    apps.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    
+    let display_count = count.min(apps.len());
+    
+    if oneline {
+        // First pass: collect all the data and calculate max widths
+        let app_data: Vec<_> = apps.iter().take(display_count).map(|app| {
+            let location = if let Some(active_profile) = app.profiles.iter().find(|p| p.active) {
+                format!("({:?}: {})", active_profile.profile_type, active_profile.location.display())
+            } else if let Some(ref dir) = app.directory {
+                format!("({})", dir.display())
+            } else {
+                String::new()
+            };
+            
+            let tags = if !app.tags.is_empty() {
+                format!("[{}]", app.tags.join(", "))
+            } else {
+                String::new()
+            };
+            
+            let updated = format_datetime(&app.updated_at);
+            
+            (app.name.clone(), location, tags, updated)
+        }).collect();
+        
+        // Calculate max widths for alignment
+        let max_name_width = app_data.iter().map(|(name, _, _, _)| name.len()).max().unwrap_or(0);
+        let max_location_width = app_data.iter().map(|(_, loc, _, _)| loc.len()).max().unwrap_or(0);
+        let max_tags_width = app_data.iter().map(|(_, _, tags, _)| tags.len()).max().unwrap_or(0);
+        
+        // Second pass: print with padding
+        for (name, location, tags, updated) in app_data {
+            print!("{:<width$}", name, width = max_name_width + 2);
+            
+            if !location.is_empty() {
+                print!("{:<width$}", location, width = max_location_width + 2);
+            } else if max_location_width > 0 {
+                print!("{:<width$}", "", width = max_location_width + 2);
+            }
+            
+            if !tags.is_empty() {
+                print!("{:<width$}", tags, width = max_tags_width + 2);
+            } else if max_tags_width > 0 {
+                print!("{:<width$}", "", width = max_tags_width + 2);
+            }
+            
+            println!("{}", updated);
+        }
+    } else {
+        println!("Latest {} apps:", display_count);
+        
+        for app in apps.iter().take(display_count) {
+            println!("  {}", app.name);
+            
+            // Show active profile or legacy directory
+            if let Some(active_profile) = app.profiles.iter().find(|p| p.active) {
+                println!("    {:?}: {}", active_profile.profile_type, active_profile.location.display());
+            } else if let Some(ref dir) = app.directory {
+                println!("    Directory: {}", dir.display());
+            }
+            
+            if !app.tags.is_empty() {
+                println!("    Tags: {}", app.tags.join(", "));
+            }
+            if let Some(ref repo) = app.github_repo {
+                println!("    GitHub: {}", repo);
+            }
+            println!("    Updated: {}", format_datetime(&app.updated_at));
+            println!();
+        }
     }
     
     Ok(())
