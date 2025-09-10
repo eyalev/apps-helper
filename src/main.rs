@@ -34,6 +34,8 @@ struct App {
     directory: Option<PathBuf>,
     tags: Vec<String>,
     github_repo: Option<String>,
+    #[serde(default)]
+    tasks: Vec<String>,
     created_at: String,
     updated_at: String,
 }
@@ -89,6 +91,10 @@ enum AppCommands {
     Profile {
         #[command(subcommand)]
         profile_command: ProfileCommands,
+    },
+    #[command(name = "add-task")]
+    AddTask {
+        task: String,
     },
 }
 
@@ -155,6 +161,13 @@ fn handle_app_command(get_app: Option<String>, subcommand: Option<AppCommands>) 
         Some(AppCommands::Remove { get, current_dir }) => {
             let search_term = get.or(get_app);
             remove_app(&search_term, current_dir)?;
+        }
+        Some(AppCommands::AddTask { task }) => {
+            if let Some(app_name) = get_app {
+                add_task(&app_name, &task)?;
+            } else {
+                return Err(anyhow::anyhow!("--get is required for add-task command"));
+            }
         }
         Some(AppCommands::Profile { profile_command }) => {
             if let Some(app_name) = get_app {
@@ -285,6 +298,7 @@ fn add_app(name: &Option<String>, dir: &Option<PathBuf>, tags: &Option<String>, 
         directory: directory.clone(), // Keep for legacy compatibility
         tags: tag_list.clone(),
         github_repo: None,
+        tasks: Vec::new(),
         created_at: now.clone(),
         updated_at: now,
     };
@@ -338,6 +352,9 @@ fn list_apps() -> Result<()> {
         if let Some(ref repo) = app.github_repo {
             println!("    GitHub: {}", repo);
         }
+        if !app.tasks.is_empty() {
+            println!("    Tasks: {} task(s)", app.tasks.len());
+        }
         println!("    Created: {}", format_datetime(&app.created_at));
         println!();
     }
@@ -376,18 +393,25 @@ fn list_latest_apps(count: usize, oneline: bool) -> Result<()> {
                 String::new()
             };
             
+            let latest_task = if !app.tasks.is_empty() {
+                format!("Task: {}", app.tasks.last().unwrap())
+            } else {
+                String::new()
+            };
+            
             let updated = format_datetime(&app.updated_at);
             
-            (app.name.clone(), location, tags, updated)
+            (app.name.clone(), location, tags, latest_task, updated)
         }).collect();
         
         // Calculate max widths for alignment
-        let max_name_width = app_data.iter().map(|(name, _, _, _)| name.len()).max().unwrap_or(0);
-        let max_location_width = app_data.iter().map(|(_, loc, _, _)| loc.len()).max().unwrap_or(0);
-        let max_tags_width = app_data.iter().map(|(_, _, tags, _)| tags.len()).max().unwrap_or(0);
+        let max_name_width = app_data.iter().map(|(name, _, _, _, _)| name.len()).max().unwrap_or(0);
+        let max_location_width = app_data.iter().map(|(_, loc, _, _, _)| loc.len()).max().unwrap_or(0);
+        let max_tags_width = app_data.iter().map(|(_, _, tags, _, _)| tags.len()).max().unwrap_or(0);
+        let max_task_width = app_data.iter().map(|(_, _, _, task, _)| task.len()).max().unwrap_or(0);
         
         // Second pass: print with padding
-        for (name, location, tags, updated) in app_data {
+        for (name, location, tags, latest_task, updated) in app_data {
             print!("{:<width$}", name, width = max_name_width + 2);
             
             if !location.is_empty() {
@@ -400,6 +424,12 @@ fn list_latest_apps(count: usize, oneline: bool) -> Result<()> {
                 print!("{:<width$}", tags, width = max_tags_width + 2);
             } else if max_tags_width > 0 {
                 print!("{:<width$}", "", width = max_tags_width + 2);
+            }
+            
+            if !latest_task.is_empty() {
+                print!("{:<width$}", latest_task, width = max_task_width + 2);
+            } else if max_task_width > 0 {
+                print!("{:<width$}", "", width = max_task_width + 2);
             }
             
             println!("{}", updated);
@@ -473,6 +503,12 @@ fn get_app_info(search_term: &str) -> Result<()> {
             if let Some(ref repo) = app.github_repo {
                 println!("  GitHub: {}", repo);
             }
+            if !app.tasks.is_empty() {
+                println!("  Tasks:");
+                for (i, task) in app.tasks.iter().enumerate() {
+                    println!("    {}. {}", i + 1, task);
+                }
+            }
             println!("  Created: {}", format_datetime(&app.created_at));
             println!("  Updated: {}", format_datetime(&app.updated_at));
         }
@@ -539,6 +575,23 @@ fn remove_app(search_term: &Option<String>, use_current_dir: bool) -> Result<()>
                 println!("App '{}' not found.", term);
             }
         }
+    }
+    
+    Ok(())
+}
+
+fn add_task(search_term: &str, task: &str) -> Result<()> {
+    let mut data = load_data()?;
+    
+    if let Some(app) = find_app_by_name_mut(&mut data, search_term) {
+        let app_name = app.name.clone(); // Clone the name before modifying
+        app.tasks.push(task.to_string());
+        app.updated_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        
+        save_data(&data)?;
+        println!("✓ Added task to {}: {}", app_name, task);
+    } else {
+        return Err(anyhow::anyhow!("App '{}' not found", search_term));
     }
     
     Ok(())
